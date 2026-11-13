@@ -95,7 +95,9 @@ rather than a bare version pattern.
   means exit 1. Pass the tool's own non-interactive flag (`--yes`,
   `--non-interactive`, `-y`). If it has none, answer its questions from a
   file, as `anythingllm.sh` does, and say in a comment which question gets
-  which answer.
+  which answer. A tool's own updater run through `tool_standard` also has no controlling
+  terminal (`setsid -w`), so one that asks on `/dev/tty` fails at once
+  instead of hanging until the timeout.
 - **Run commands through the runners** in `lib/core/util.sh`, never directly:
   - `do_user` / `do_root` for anything that changes something. In a dry run
     they only print what they would do.

@@ -42,7 +42,7 @@ esac"
   assert_equal "$homebin/copilot" "${SU_TOOL_BIN[copilot]}"
   assert_equal "$homebin/copilot" "$(cat "$BATS_TEST_TMPDIR/updated-from")"
   grep -q "^root rm -f -- $sysbin/copilot$" "$RAN"
-  grep -q "^user copilot update$" "$RAN"
+  grep -q "^user $(detached)copilot update$" "$RAN"
   ! grep -q "^root env" "$RAN"
   grep -q "copilot|updated|1.0.105 -> 1.0.106" <<< "$(printf '%s|%s|%s\n' "${SU_STEP_NAMES[0]}" "${SU_STEP_RESULTS[0]}" "${SU_STEP_NOTES[0]}")"
 }

@@ -102,3 +102,35 @@ serve_manifest() { printf '{"version":"%s","platforms":{}}\n' "$1" > "$manifest"
   assert_contains "$STEP_NOTE" "still 3000.12.28"
   assert_contains "$STEP_NOTE" "run 'devin update' in a terminal"
 }
+
+# Ed's issue 11: "devin update" sat for the whole TOOL_TIMEOUT and changed
+# nothing. Run from a terminal, `timeout` puts the updater in a background
+# process group, so an updater that asks on /dev/tty is stopped by SIGTTIN
+# and waits silently. The test runs the step inside a pseudo-terminal
+# (script(1)) to have a terminal to ask on; bats itself has none.
+@test "a devin update that asks on the terminal fails at once instead of waiting for TOOL_TIMEOUT (issue 11)" {
+  command -v script >/dev/null 2>&1 || skip "script(1) not installed"
+  setsid_usable || skip "util-linux setsid not installed"
+  fake_devin 3000.12.43 "echo 'Install 3000.12.57? [Y/n]' > /dev/tty && read -r a < /dev/tty && echo 3000.12.57 > \"$BATS_TEST_TMPDIR/ver\" || { echo 'no terminal to ask on' >&2; exit 1; }"
+  serve_manifest 3000.12.57
+  cat > "$BATS_TEST_TMPDIR/driver.sh" <<DRIVER
+BATS_TEST_FILENAME="$BATS_TEST_FILENAME"
+BATS_TEST_TMPDIR="$BATS_TEST_TMPDIR"
+source "$REPO_ROOT/tests/test_helper.bash"
+SU_OUT=1
+load_su
+gh_stub_init
+export PATH="$bindir:\$PATH"
+SU_PROBE_TIMEOUT=5 SU_TIMEOUT=20 SU_TOOL_TIMEOUT=8 SU_PKG=apt SU_DRY_RUN=0
+tools_discover
+tool_devin_update >/dev/null 2>&1
+printf '%s|%s\\n' "\$STEP_RESULT" "\$STEP_NOTE" > "$BATS_TEST_TMPDIR/result"
+DRIVER
+  local start end
+  start=$(date +%s)
+  SHELL=/bin/bash timeout 60 script -qec "bash $BATS_TEST_TMPDIR/driver.sh" /dev/null </dev/null >/dev/null 2>&1 || true
+  end=$(date +%s)
+  assert_equal "update" "$(cat "$calls")"
+  assert_contains "$(cat "$BATS_TEST_TMPDIR/result")" "failed|update command failed (exit code 1)"
+  [ $((end - start)) -lt 8 ]
+}

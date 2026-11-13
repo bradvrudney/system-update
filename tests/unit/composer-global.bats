@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
 # composer global update (Ed's issue 7): look first with --dry-run, leave the
 # global packages alone when the update would downgrade any of them, and put
-# them back when a real update fails half way.
+# them back when a real update fails half way. When the failure is one of
+# the user's own patches that no longer applies (Ed's issue 11), say which.
 
 load ../test_helper
 
@@ -40,6 +41,7 @@ Lock file operations: 0 installs, 2 updates, 0 removals
           echo 'broken' > "$CHOME/vendor/autoload.php"
           rm -rf "$CHOME/vendor/symfony"
           echo 'lock-v2' > "$CHOME/composer.lock"
+          [ -n "${UPDATE_OUT:-}" ] && printf '%s\n' "$UPDATE_OUT" >&2
           return "$UPDATE_RC"
         fi
         [ -d "$CHOME" ] && echo 'lock-v2' > "$CHOME/composer.lock"; return 0 ;;
@@ -112,4 +114,59 @@ symfony/yaml 7.4.1 -> 5.4.45" "$(composer_downgrades "$BATS_TEST_TMPDIR/plan")"
   rm -rf "$CHOME"
   composer_global_update
   assert_equal "global update ok" "$COMPOSER_GLOBAL_NOTE"
+}
+
+# What Ed's composer printed in issue 11: cweagans/composer-patches 2.x
+# wraps the message in a box, here in the middle of the URL.
+ROBO_PATCH_OUT='  - Upgrading consolidation/robo (5.2.0 => 5.2.3): Extracting archive
+  - Patching consolidation/robo
+
+In Patches.php line 288:
+                                                                               
+  No available patcher was able to apply patch https://patch-diff.githubuserc  
+  ontent.com/raw/consolidation/robo/pull/1185.diff to consolidation/robo       
+                                                                               
+
+update [--with WITH] [--prefer-source] [--dry-run]'
+
+@test "composer_patch_failure joins the wrapped message back into URL and package" {
+  printf '%s\n' "$ROBO_PATCH_OUT" > "$BATS_TEST_TMPDIR/out"
+  assert_equal "https://patch-diff.githubusercontent.com/raw/consolidation/robo/pull/1185.diff|consolidation/robo" \
+    "$(composer_patch_failure "$BATS_TEST_TMPDIR/out")"
+}
+
+@test "composer_patch_failure finds nothing in other failures" {
+  printf 'The "https://repo.packagist.org/p2/a/b.json" file could not be downloaded\n' > "$BATS_TEST_TMPDIR/out"
+  run composer_patch_failure "$BATS_TEST_TMPDIR/out"
+  assert_equal 1 "$status"
+}
+
+@test "a patch that no longer applies: restored, a warning naming the patch and where it is listed (issue 11)" {
+  echo '{"require":{"consolidation/robo":"^5"},"extra":{"patches":{"consolidation/robo":{"x":"https://patch-diff.githubusercontent.com/raw/consolidation/robo/pull/1185.diff"}}}}' > "$CHOME/composer.json"
+  UPDATE_RC=1
+  UPDATE_OUT=$ROBO_PATCH_OUT
+  rc=0; composer_global_update || rc=$?
+  assert_equal 2 "$rc"
+  assert_contains "$COMPOSER_GLOBAL_NOTE" "a patch for consolidation/robo no longer applies"
+  assert_contains "$COMPOSER_GLOBAL_NOTE" "robo/pull/1185.diff, listed in $CHOME/composer.json"
+  assert_contains "$COMPOSER_GLOBAL_NOTE" "previous packages restored"
+  assert_equal lock-v1 "$(cat "$CHOME/composer.lock")"
+  assert_equal good "$(cat "$CHOME/vendor/autoload.php")"
+}
+
+@test "a patch listed in a patches file is named by that file" {
+  echo '{"extra":{"patches-file":"patches.json"}}' > "$CHOME/composer.json"
+  echo '{"patches":{"consolidation/robo":{"x":"https://patch-diff.githubusercontent.com/raw/consolidation/robo/pull/1185.diff"}}}' > "$CHOME/patches.json"
+  UPDATE_RC=1
+  UPDATE_OUT=$ROBO_PATCH_OUT
+  rc=0; composer_global_update || rc=$?
+  assert_equal 2 "$rc"
+  assert_contains "$COMPOSER_GLOBAL_NOTE" "listed in $CHOME/patches.json"
+}
+
+@test "the PHP version ends its line in the log" {
+  run_user() { case "$*" in "php -r"*) shift 2; [ "$1" = 'echo PHP_VERSION, PHP_EOL;' ] && echo "8.4.27" ;; *) "$@" ;; esac; }
+  PLAN="Nothing to modify in lock file
+Nothing to install, update or remove"
+  composer_global_update 2>&1 | grep -q 'PHP for the global packages: 8.4.27'
 }

@@ -334,7 +334,17 @@ tool_standard() {
       self_update_who "$name" "$real" || return 0
     fi
     if [ "$SELF_UPDATE_AS" = user ]; then
-      SU_RUN_TIMEOUT=$tmo do_user "${cmd[@]}" || rc=$?
+      # Detached from the terminal (setsid): `timeout` runs the updater in a
+      # background process group, so an updater that asks its question on
+      # /dev/tty ("devin update") is stopped by SIGTTIN and sits there,
+      # silent, until TOOL_TIMEOUT. Without a controlling terminal, opening
+      # /dev/tty fails at once and the updater goes on without asking or
+      # says why it can't.
+      if setsid_usable; then
+        SU_RUN_TIMEOUT=$tmo do_user setsid -w "${cmd[@]}" || rc=$?
+      else
+        SU_RUN_TIMEOUT=$tmo do_user "${cmd[@]}" || rc=$?
+      fi
     else
       SU_RUN_TIMEOUT=$tmo self_update_root "${cmd[@]}" || rc=$?
     fi

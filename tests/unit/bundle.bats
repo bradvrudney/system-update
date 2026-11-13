@@ -73,7 +73,7 @@ setup() {
 @test "a failing step fails the bundle's run too" {
   local bindir="$BATS_TEST_TMPDIR/fake"
   make_fake_bin "$bindir" kilo 'case "$1" in --version) echo 1.2.3;; upgrade) echo "network down" >&2; exit 7;; esac'
-  PATH="$bindir:$PATH" run "$BUNDLE" --only kilo --no-color
+  FIRST_RUN_INSTALL=0 PATH="$bindir:$PATH" run "$BUNDLE" --only kilo --no-color
   assert_equal 1 "$status"
   assert_contains "$output" "exit code 7"
 }
@@ -223,4 +223,93 @@ release() {
   run "$REPO_ROOT/system-update" --install-user --dry-run --no-color --no-log
   assert_equal 0 "$status"
   assert_contains "$output" "would run: $REPO_ROOT/install.sh --user"
+}
+
+# First run of a release download (uberhacker/system-update#10): with no
+# system-update installed it installs itself, then runs as usual.
+
+# first_run_env: a private HOME, system prefix and PATH with a working kilo
+# and no system-update; sets DEST to where the first run must install (the
+# system prefix when the tests run as root, else ~/.local/bin).
+first_run_env() {
+  export HOME="$BATS_TEST_TMPDIR/home" SU_INSTALL_ROOT="$BATS_TEST_TMPDIR/usr-local" XDG_DATA_HOME=
+  FAKE="$BATS_TEST_TMPDIR/fake"
+  mkdir -p "$HOME/Downloads"
+  make_fake_bin "$FAKE" kilo 'case "$1" in --version) echo 1.2.3;; esac'
+  export PATH="$FAKE:/usr/bin:/bin"
+  cp "$BUNDLE" "$HOME/Downloads/system-update"
+  if [ "$(id -u)" = 0 ]; then DEST="$SU_INSTALL_ROOT/bin/system-update"; else DEST="$HOME/.local/bin/system-update"; fi
+}
+
+@test "first run: a downloaded single file installs itself, then runs" {
+  first_run_env
+  run "$HOME/Downloads/system-update" --only kilo --no-color --no-log
+  assert_equal 0 "$status"
+  assert_contains "$output" "first run"
+  [ -x "$DEST" ]
+  cmp -s "$BUNDLE" "$DEST"
+  assert_contains "$output" "from now on run: system-update"
+  # ... and the run itself went on.
+  assert_contains "$output" "kilo"
+  assert_contains "$output" "Summary"
+  # The installed copy (or the download, run again) does not install again.
+  PATH="$(dirname "$DEST"):$PATH" run "$DEST" --only kilo --no-color --no-log
+  assert_equal 0 "$status"
+  assert_not_contains "$output" "first run"
+  run "$HOME/Downloads/system-update" --only kilo --no-color --no-log
+  assert_not_contains "$output" "first run"
+}
+
+@test "first run: --no-install and FIRST_RUN_INSTALL=0 run it from where it is" {
+  first_run_env
+  run "$HOME/Downloads/system-update" --only kilo --no-install --no-color --no-log
+  assert_equal 0 "$status"
+  assert_not_contains "$output" "first run"
+  [ ! -e "$DEST" ]
+  FIRST_RUN_INSTALL=0 run "$HOME/Downloads/system-update" --only kilo --no-color --no-log
+  assert_equal 0 "$status"
+  [ ! -e "$DEST" ]
+}
+
+@test "first run: an existing system-update on PATH or at an install location is left alone" {
+  first_run_env
+  # Something else called system-update on PATH (a checkout's install.sh link).
+  make_fake_bin "$FAKE" system-update 'echo other'
+  run "$HOME/Downloads/system-update" --only kilo --no-color --no-log
+  assert_equal 0 "$status"
+  assert_not_contains "$output" "first run"
+  [ ! -e "$DEST" ]
+  # Not on PATH, but present at the install location.
+  rm "$FAKE/system-update"
+  mkdir -p "$(dirname "$DEST")"
+  echo '#!/bin/sh' > "$DEST"
+  run "$HOME/Downloads/system-update" --only kilo --no-color --no-log
+  assert_not_contains "$output" "first run"
+  assert_equal '#!/bin/sh' "$(cat "$DEST")"
+}
+
+@test "first run: a dry run only says it would install" {
+  first_run_env
+  run "$HOME/Downloads/system-update" --only kilo --dry-run --no-color --no-log
+  assert_equal 0 "$status"
+  assert_contains "$output" "would install"
+  [ ! -e "$DEST" ]
+  [ ! -e "$HOME/.local" ]
+  [ ! -e "$SU_INSTALL_ROOT" ]
+}
+
+@test "first run: the multi-file program never installs itself" {
+  first_run_env
+  run "$REPO_ROOT/bin/system-update" --only kilo --no-color --no-log
+  assert_equal 0 "$status"
+  assert_not_contains "$output" "first run"
+  [ ! -e "$DEST" ]
+}
+
+@test "first run: --list, --help and --version install nothing" {
+  first_run_env
+  "$HOME/Downloads/system-update" --list --no-color --no-log >/dev/null
+  "$HOME/Downloads/system-update" --help >/dev/null
+  "$HOME/Downloads/system-update" --version >/dev/null
+  [ ! -e "$DEST" ]
 }

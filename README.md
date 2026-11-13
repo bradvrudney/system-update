@@ -77,18 +77,25 @@ update recipes are his; see [Changes from the original](#changes-from-the-origin
 
 ## Quick start
 
+Download the program from the latest release and run it:
+
 ```
-$ git clone https://github.com/uberhacker/system-update.git
-$ cd system-update
-$ ./system-update --list         # what was detected; nothing runs
-$ ./system-update --detailed     # every package and tool that would change, old -> new
-$ ./system-update                # do it
+$ curl -fLO https://github.com/uberhacker/system-update/releases/latest/download/system-update
+$ chmod +x system-update
+$ ./system-update
 ```
 
-Run it as yourself, not with `sudo`: it asks for your password once when a
-step needs root and updates your own tools as you. `./install.sh` puts it on
-your `PATH` (see [Installation](#installation)); after that it is just
-`system-update`.
+That is the whole installation. On its first run it copies itself to
+`~/.local/bin/system-update` (with its tab completion) and then updates
+everything; from then on it is just `system-update`, and the downloaded file
+can be deleted. Run it as yourself, not with `sudo`: it asks for your
+password once when a step needs root and updates your own tools as you.
+(`sudo ./system-update` installs it in `/usr/local/bin` instead.) To look
+first, `./system-update --list` shows what was detected and
+`./system-update --detailed` every package and tool that would change,
+old -> new; neither installs or changes anything. See
+[Installation](#installation) for checking the download's sha256, a git
+checkout and the other ways to install.
 
 ## What it does
 
@@ -372,7 +379,9 @@ never "reinstall".
 
 ## Installation
 
-System wide (puts `system-update` in `/usr/local/bin`, the program in
+The simplest way is the [single file](#single-file) from a release, which
+installs itself on its first run (see [Quick start](#quick-start)). From a
+git checkout instead, system wide (puts `system-update` in `/usr/local/bin`, the program in
 `/usr/local/share/system-update`):
 
 ```
@@ -412,6 +421,23 @@ $ curl -fLO https://github.com/uberhacker/system-update/releases/latest/download
 $ curl -fLO https://github.com/uberhacker/system-update/releases/latest/download/system-update.sha256
 $ sha256sum -c system-update.sha256
 $ chmod +x system-update
+$ ./system-update                    # installs itself on the first run, then updates
+```
+
+**First run.** A single file that finds no `system-update` installed (none
+on `PATH`, nothing in `~/.local/bin` or `/usr/local/bin`) installs itself
+before it starts: as `--install-user` does when run as a user, as
+`--install` does when run as root (`sudo ./system-update`). The run then
+goes on as usual, and a failed installation is only a warning. A dry run
+(`--dry-run`, `--detailed`) only says what it would install, and `--list`,
+`--help` and `--version` never install. An existing installation, of any
+kind, is never replaced this way. `--no-install` (or `FIRST_RUN_INSTALL=0`
+in the config or the environment) runs the file from where it is, for a
+copy on a USB stick or in a container.
+
+To install it explicitly, without running the updates:
+
+```
 $ ./system-update --install          # /usr/local/bin, asks for sudo once
 $ ./system-update --install-user     # or ~/.local/bin, no sudo
 ```
@@ -513,6 +539,9 @@ Options:
       --install           install this program system-wide (/usr/local/bin, uses sudo) and exit;
                           a single file copies itself, a checkout runs its install.sh
       --install-user      the same into ~/.local/bin, for the invoking user only
+      --no-install        a single file that is not installed yet installs itself
+                          on its first run (~/.local/bin, or /usr/local/bin as
+                          root); this runs it from where it is instead
       --completion SHELL  print the bash completion script and exit
                           (source <(system-update --completion bash))
       --version           print the version and exit
@@ -596,6 +625,7 @@ ignored. See [`config.example`](config.example).
 | `SELF_UPDATE_BRANCH` | empty | branch for `--self-update`; empty follows the checkout's branch if the remote has it, else the remote's default branch (`master` here) |
 | `SELF_UPDATE_CHECK` | `1` | after a run, say when `SELF_UPDATE_REPO` has published a newer release than this program |
 | `SELF_UPDATE_AUTO` | `0` | after a run, apply a newer release with `--self-update` (used from the next start) |
+| `FIRST_RUN_INSTALL` | `1` | a single file with no `system-update` installed installs itself on its first run (`--no-install`: `0`) |
 | `SKIP` / `ONLY` | empty | comma separated step names |
 | `MOVE_TO_HOME` | empty | self-updating tools to move from a root-owned directory to `~/.local/bin` (`--move-to-home`; `all` for every one) |
 | `TIMEOUT` | `300` | seconds a third-party tool may run |
@@ -805,8 +835,12 @@ $ ./build.sh             # the single-file build, dist/system-update
 Releases: bump `VERSION`, commit, then tag and push it (`git tag v2.1.0 &&
 git push origin v2.1.0`). `.github/workflows/release.yml` runs the lint and
 unit tests, checks the tag matches `VERSION`, builds the single file and
-publishes it with its `.sha256` as a GitHub release. CI also uploads a
-build of every push as an artifact.
+publishes it with its `.sha256` as a GitHub release. A release created
+first in the web UI, which creates the tag too, is fine: the workflow then
+attaches the two files to it instead of creating another. To attach them to
+an existing tag later (v2.1.0 was published without them), use Actions >
+Release > Run workflow with that tag. CI also uploads a build of every push
+as an artifact.
 
 The unit tests cover OS detection against `/etc/os-release` fixtures, the
 config parser (including hostile values), argument handling, colour and icon

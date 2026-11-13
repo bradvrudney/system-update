@@ -426,6 +426,46 @@ selfupdate_install() {
   log_info "keep it current with: system-update --self-update (or SELF_UPDATE_AUTO=1 in the config)"
 }
 
+# selfupdate_installed: is a system-update already installed? Anything
+# called system-update on PATH (this file included, when it is run from a
+# PATH directory) or at either --install location counts, whatever it is:
+# the first run never replaces or shadows an existing installation.
+selfupdate_installed() {
+  local m
+  [ -n "$(type -P system-update 2>/dev/null)" ] && return 0
+  for m in system user; do
+    selfupdate_install_dirs "$m"
+    if [ -e "$SU_INSTALL_BIN/system-update" ] || [ -L "$SU_INSTALL_BIN/system-update" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# selfupdate_first_run: a single-file build (a release download) that finds
+# no installed system-update installs itself before its first run, as
+# --install-user does, or --install when run as root (sudo ./system-update),
+# so that downloading it and running it is the whole installation. The run
+# then goes on as usual. FIRST_RUN_INSTALL=0 / --no-install turns it off; a
+# failure is a warning, never the end of the run. In a dry run it only says
+# what it would do.
+selfupdate_first_run() {
+  local mode=user
+  [ "${SU_BUNDLED:-0}" = 1 ] || return 0
+  cfg_bool FIRST_RUN_INSTALL || return 0
+  selfupdate_installed && return 0
+  is_root && mode=system
+  log_info "first run: system-update is not installed yet; installing $SU_BIN (--no-install or FIRST_RUN_INSTALL=0 to skip)"
+  if ! selfupdate_install "$mode"; then
+    log_warn "could not install system-update; this run continues from $SU_BIN (see system-update --help: --install, --install-user)"
+    return 0
+  fi
+  [ "$SU_DRY_RUN" = 1 ] && return 0
+  selfupdate_install_dirs "$mode"
+  log_info "from now on run: system-update ($SU_INSTALL_BIN/system-update); $SU_BIN is no longer needed"
+  return 0
+}
+
 # ---------------------------------------------------------------------------
 # After a run: is there a newer release? (SELF_UPDATE_CHECK, SELF_UPDATE_AUTO)
 # ---------------------------------------------------------------------------

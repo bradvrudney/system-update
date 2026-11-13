@@ -307,6 +307,8 @@ main() {
     log_plain "${C_MAGENTA}dry run$([ "$SU_DETAILED" = 1 ] && printf ' (detailed)'): nothing will be changed${C_RESET}"
   fi
   [ "$SU_YES" = 1 ] && log_detail "--yes given (package managers never prompt anyway)"
+  # A single file run for the first time puts itself on PATH (FIRST_RUN_INSTALL).
+  selfupdate_first_run
   has_cmd curl || log_warn "curl is not installed: GitHub release lookups and downloads will be skipped"
 
   # Decide whether sudo credentials are needed up front.

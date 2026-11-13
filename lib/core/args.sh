@@ -16,6 +16,7 @@ SU_ARG_COLOR=""
 SU_ARG_FIRMWARE=""
 SU_ARG_SELF_UPDATE=0
 SU_ARG_INSTALL=""
+SU_ARG_FIRST_RUN_INSTALL=""
 SU_ARG_MOVE_TO_HOME=""
 SU_ARG_UNDO_FLATPAK=0
 SU_ARG_SOURCE=""
@@ -88,6 +89,9 @@ Options:
       --install           install this program system-wide (/usr/local/bin, uses sudo) and exit;
                           a single file copies itself, a checkout runs its install.sh
       --install-user      the same into ~/.local/bin, for the invoking user only
+      --no-install        a single file that is not installed yet installs itself
+                          on its first run (~/.local/bin, or /usr/local/bin as
+                          root); this runs it from where it is instead
       --completion SHELL  print the bash completion script and exit
                           (source <(system-update --completion bash))
       --version           print the version and exit
@@ -153,6 +157,7 @@ args_parse() {
       --self-update) SU_ARG_SELF_UPDATE=1 ;;
       --install) SU_ARG_INSTALL=system ;;
       --install-user) SU_ARG_INSTALL=user ;;
+      --no-install) SU_ARG_FIRST_RUN_INSTALL=0 ;;
       --source) args_need "$opt" "${2:-}" || return 2; SU_ARG_SOURCE="$2"; shift ;;
       --branch) args_need "$opt" "${2:-}" || return 2; SU_ARG_BRANCH="$2"; shift ;;
       --version|-V) SU_ARG_VERSION=1 ;;
@@ -205,6 +210,7 @@ args_apply() {
   [ -n "$SU_ARG_GO_TOOLCHAIN" ] && config_set GO_TOOLCHAIN "$SU_ARG_GO_TOOLCHAIN" flag
   [ -n "$SU_ARG_CONTAINERS" ] && config_set CONTAINERS "$SU_ARG_CONTAINERS" flag
   [ -n "$SU_ARG_LOGGING" ] && config_set LOGGING "$SU_ARG_LOGGING" flag
+  [ -n "$SU_ARG_FIRST_RUN_INSTALL" ] && config_set FIRST_RUN_INSTALL "$SU_ARG_FIRST_RUN_INSTALL" flag
   [ -n "$SU_ARG_SOURCE" ] && { config_set SELF_UPDATE_REPO "$SU_ARG_SOURCE" flag || return 2; }
   [ -n "$SU_ARG_BRANCH" ] && { config_set SELF_UPDATE_BRANCH "$SU_ARG_BRANCH" flag || return 2; }
 

@@ -23,6 +23,12 @@
 #SELF_UPDATE_CHECK=1
 #SELF_UPDATE_AUTO=0
 
+# A single-file build downloaded from a release installs itself on its first
+# run when no system-update is installed yet: into ~/.local/bin, or into
+# /usr/local/bin when run as root (as --install-user / --install do). 0 (or
+# --no-install) runs it from where it is without installing it.
+#FIRST_RUN_INSTALL=1
+
 # Steps to skip or to run exclusively (comma separated). Names: system (or
 # the package manager name: apt, dnf, zypper, pacman, apk, ...), flatpak,
 # snap, firmware, reboot-check, tools, or any tool name from --list.

@@ -37,7 +37,7 @@ esac"
   tool_copilot_update
   assert_equal updated "$STEP_RESULT"
   assert_equal "1.0.105 -> 1.0.106" "$STEP_NOTE"
-  assert_equal "user copilot update" "$(cat "$RAN")"
+  assert_equal "user $(detached)copilot update" "$(cat "$RAN")"
 }
 
 @test "copilot in a root-owned /usr/local/bin: updated as root with root's HOME (Ed's EACCES)" {
@@ -68,7 +68,7 @@ esac"
 @test "lando refuses root: its updater stays with the user even in a root-owned directory" {
   NOT_WRITABLE="$bindir"
   tool_lando_update
-  assert_equal "user lando update -y" "$(cat "$RAN")"
+  assert_equal "user $(detached)lando update -y" "$(cat "$RAN")"
 }
 
 @test "go toolchain: root when the user can't write its parent directory" {

@@ -45,6 +45,10 @@ teardown() {
 fixture() { printf '%s/%s\n' "$FIXTURES" "$1"; }
 
 # make_fake_bin DIR NAME SCRIPT_BODY: executable script on a private PATH dir.
+# detached: the prefix a tool's own updater gets when it runs as the user
+# ("setsid -w " where util-linux setsid is installed, see tool_standard).
+detached() { setsid_usable && printf 'setsid -w '; return 0; }
+
 make_fake_bin() {
   local dir="$1" name="$2" body="$3"
   mkdir -p "$dir"

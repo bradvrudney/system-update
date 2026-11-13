@@ -212,6 +212,17 @@ do_user() {
   run_user "$@"
 }
 
+# setsid_usable: true when `setsid -w` (util-linux) is available. Busybox's
+# setsid has no -w and would return before the command ends, so it is not
+# used. The answer is kept for the rest of the run.
+SU_SETSID_OK=""
+setsid_usable() {
+  if [ -z "$SU_SETSID_OK" ]; then
+    if has_cmd setsid && setsid -w true </dev/null >/dev/null 2>&1; then SU_SETSID_OK=1; else SU_SETSID_OK=0; fi
+  fi
+  [ "$SU_SETSID_OK" = 1 ]
+}
+
 # rc_note rc: turns an exit code into a short human note.
 rc_note() {
   case "$1" in

@@ -33,6 +33,36 @@ composer_downgrades() {
   done < "$1" | sort -u
 }
 
+# composer_patch_failure LOGFILE: "URL|vendor/package" for the patch that
+# cweagans/composer-patches 2.x could not apply ("No available patcher was
+# able to apply patch URL to vendor/package"). Composer prints the message in
+# a box wrapped at the terminal width, often in the middle of the URL, so the
+# block is joined up again first. Returns 1 when there is no such message.
+composer_patch_failure() {
+  local text url pkg
+  text=$(awk '/No available patcher was able to apply patch/ { on = 1 }
+    on && /^[[:space:]]*$/ { exit }
+    on { sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, ""); printf "%s ", $0 }' "$1")
+  [ -n "$text" ] || return 1
+  text=${text#*apply patch }
+  url=${text% to *}
+  pkg=${text##* to }
+  url=${url// /}
+  pkg=${pkg// /}
+  [ -n "$url" ] && [[ "$pkg" == */* ]] || return 1
+  printf '%s|%s\n' "$url" "$pkg"
+}
+
+# composer_patch_source HOME URL: the file in the global Composer directory
+# that lists the patch (composer.json, or a patches file), if any.
+composer_patch_source() {
+  local f
+  for f in "$1"/composer.json "$1"/patches*.json; do
+    [ -f "$f" ] && grep -qF -- "$2" "$f" && { printf '%s\n' "$f"; return 0; }
+  done
+  return 1
+}
+
 # composer_global_update: update the user's global packages, but
 #   * look first (--dry-run): nothing to do -> done; any package that would
 #     be DOWNGRADED -> leave everything as it is and say which ones (a
@@ -41,12 +71,17 @@ composer_downgrades() {
 #     look at before it rewrites the lock file);
 #   * keep a copy of composer.json, composer.lock and vendor/ and put it
 #     back if the update fails half way, so the global tools (cgr, drush)
-#     are not left with a broken autoloader.
+#     are not left with a broken autoloader;
+#   * when the update failed because one of the user's own patches
+#     (cweagans/composer-patches) no longer applies to the new version, say
+#     which patch, for which package and where it is listed, and warn rather
+#     than fail: the packages are back as they were, and only the user can
+#     decide whether the patch is still needed.
 # Sets COMPOSER_GLOBAL_NOTE. Returns 0 ok, 2 left alone (warn), 1 failed.
 composer_global_update() {
-  local home plan rc=0 downs n php snap="" f
+  local home plan out rc=0 downs n php snap="" f patch="" src=""
   COMPOSER_GLOBAL_NOTE=""
-  php=$(SU_RUN_TIMEOUT=$SU_PROBE_TIMEOUT run_user php -r 'echo PHP_VERSION;' 2>/dev/null) || php=""
+  php=$(SU_RUN_TIMEOUT=$SU_PROBE_TIMEOUT run_user php -r 'echo PHP_VERSION, PHP_EOL;' 2>/dev/null) || php=""
   [ -n "$php" ] && log_info "PHP for the global packages: $php"
   plan=$(tmp_file) || return 1
   SU_RUN_TIMEOUT=$SU_TIMEOUT run_capture "$plan" run_user composer global update --dry-run --no-interaction --no-ansi --no-progress || rc=$?
@@ -79,7 +114,8 @@ composer_global_update() {
     log_detail "global Composer directory not found; updating without a rollback copy"
   fi
   rc=0
-  do_user composer global update --no-interaction --no-ansi --no-progress || rc=$?
+  out=$(tmp_file) || return 1
+  run_capture "$out" do_user composer global update --no-interaction --no-ansi --no-progress || rc=$?
   if [ "$rc" -eq 0 ]; then
     [ -n "$snap" ] && rm -rf -- "$snap"
     COMPOSER_GLOBAL_NOTE="global update ok"
@@ -95,6 +131,13 @@ composer_global_update() {
       fi
     done
     rm -rf -- "$snap"
+    if patch=$(composer_patch_failure "$out"); then
+      src=$(composer_patch_source "$home" "${patch%%|*}") || src=""
+      log_warn "the patch ${patch%%|*} no longer applies to the new ${patch#*|}; the new version may already include it"
+      log_warn "remove it from \"extra\" > \"patches\"${src:+ in $src} (or replace it with one for the new version), then run: composer global update"
+      COMPOSER_GLOBAL_NOTE="global update not applied: a patch for ${patch#*|} no longer applies (${patch%%|*}${src:+, listed in $src}); previous packages restored"
+      return 2
+    fi
     COMPOSER_GLOBAL_NOTE="global update failed ($(rc_note "$rc")); previous packages restored"
     return 1
   fi

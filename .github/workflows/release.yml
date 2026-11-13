@@ -5,6 +5,11 @@ name: Release
 # a GitHub release, where `system-update --self-update` of a single-file
 # install looks for them (releases/latest/download/...).
 #
+# A release made first in the web UI (which also creates the tag) is fine:
+# the files are uploaded to it instead of creating a second one. A release
+# that is missing its files (the tag ran before this was handled) gets them
+# from Actions > Release > Run workflow with that tag, e.g. v2.1.0.
+#
 # Only the publish job can write to the repository. The tests (which run
 # third-party code: bats-core, pinned to a release commit) run in a
 # read-only job without any token, and the published file is built from a
@@ -13,11 +18,18 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and attach the files to (e.g. v2.1.0)'
+        required: true
 
 permissions:
   contents: read
 
 env:
+  # The tag being released: the pushed tag, or the one given to Run workflow.
+  TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
   BATS_REPO: https://github.com/bats-core/bats-core.git
   BATS_COMMIT: eb7f42f8d608ac693d7a4b67474f6714ea68cfc5   # v1.14.0
 
@@ -27,8 +39,12 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Check the tag name
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a release tag: $TAG"; exit 1; }
       - uses: actions/checkout@v4
         with:
+          ref: refs/tags/${{ env.TAG }}
           persist-credentials: false
       - name: Install shellcheck
         run: sudo apt-get update -q && sudo apt-get install -y -q shellcheck
@@ -42,7 +58,7 @@ jobs:
       - name: Check the tag matches VERSION
         run: |
           v=$(tr -d '[:space:]' < VERSION)
-          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME does not match VERSION ($v)"; exit 1; }
+          [ "v$v" = "$TAG" ] || { echo "tag $TAG does not match VERSION ($v)"; exit 1; }
 
   publish:
     needs: test
@@ -50,8 +66,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check the tag name
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a release tag: $TAG"; exit 1; }
       - uses: actions/checkout@v4
         with:
+          ref: refs/tags/${{ env.TAG }}
           persist-credentials: false
       - name: Build
         run: |
@@ -61,4 +81,12 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/system-update dist/system-update.sha256 --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+        # A release created by hand for this tag keeps its title and notes
+        # and gets the files (replacing older uploads of them); otherwise
+        # the release is created here.
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/system-update dist/system-update.sha256 --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" dist/system-update dist/system-update.sha256 --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
+          fi
